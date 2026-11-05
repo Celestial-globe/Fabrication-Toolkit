@@ -26,6 +26,8 @@ class ProcessManager:
             self.board = board
         self.bom = []
         self.components = []
+        self.k2_mode = False
+        self.k2_warnings = []
         self.__rotation_db = self.__read_rotation_db()
 
     @staticmethod
@@ -39,6 +41,62 @@ class ProcessManager:
         if value == 0:
             value = 0.0  # avoid "-0"
         return f'{value:.{precision}f}'.rstrip('0').rstrip('.') or '0'
+
+    # ---------------------------------------------------------------- K2 origin
+    def get_edge_cuts_bbox(self):
+        '''Return (left, top, right, bottom) in KiCad internal units (nm) of the board
+        outline (Edge.Cuts), using the outline centerline (line width excluded).
+        KiCad Y axis points down, so "bottom" is the maximum Y.'''
+        items = [d for d in self.board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
+        fps = self.board.GetModules() if hasattr(self.board, 'GetModules') else self.board.GetFootprints()
+        for fp in fps:
+            items += [g for g in fp.GraphicalItems() if g.GetLayer() == pcbnew.Edge_Cuts]
+
+        if not items:
+            raise RuntimeError("K2: 基板外形 (Edge.Cuts) が見つかりません。外形線を描いてから実行してください。")
+
+        left = top = right = bottom = None
+        for item in items:
+            bbox = item.GetBoundingBox()
+            half_w = item.GetWidth() / 2 if hasattr(item, 'GetWidth') else 0
+            l, t = bbox.GetLeft() + half_w, bbox.GetTop() + half_w
+            r, b = bbox.GetRight() - half_w, bbox.GetBottom() - half_w
+            left = l if left is None else min(left, l)
+            top = t if top is None else min(top, t)
+            right = r if right is None else max(right, r)
+            bottom = b if bottom is None else max(bottom, b)
+        return int(round(left)), int(round(top)), int(round(right)), int(round(bottom))
+
+    def get_edge_cuts_bottom_left(self):
+        left, _, _, bottom = self.get_edge_cuts_bbox()
+        return left, bottom
+
+    def apply_k2_origin(self):
+        '''Temporarily move the drill/place (aux) origin to the bottom-left of the board
+        outline. Gerber (SetUseAuxOrigin), drill and CPL all use the aux origin, so all
+        outputs become consistent. Returns the original origin for restore_origin().'''
+        settings = self.board.GetDesignSettings()
+        original = settings.GetAuxOrigin()
+        x, y = self.get_edge_cuts_bottom_left()
+        point_type = pcbnew.VECTOR2I if hasattr(pcbnew, 'VECTOR2I') else pcbnew.wxPoint
+        settings.SetAuxOrigin(point_type(x, y))
+        return (int(original[0]), int(original[1]))
+
+    def restore_origin(self, original):
+        if original is None:
+            return
+        point_type = pcbnew.VECTOR2I if hasattr(pcbnew, 'VECTOR2I') else pcbnew.wxPoint
+        self.board.GetDesignSettings().SetAuxOrigin(point_type(original[0], original[1]))
+
+    def write_origin_info(self, temp_dir):
+        '''Write the origin / board size info for the factory (K2).'''
+        left, top, right, bottom = self.get_edge_cuts_bbox()
+        fmt = self._format_coordinate
+        with open(os.path.join(temp_dir, originFileName), 'w', encoding='utf-8-sig') as f:
+            f.write('Origin: bottom-left of board outline bounding box (Edge.Cuts) = (0, 0)\n')
+            f.write('Origin in KiCad page coordinates [mm]: X={}, Y={}\n'.format(fmt(left / 1e6), fmt(bottom / 1e6)))
+            f.write('Board size [mm]: W={}, H={}\n'.format(fmt((right - left) / 1e6), fmt((bottom - top) / 1e6)))
+            f.write('Units: mm / Y axis: up positive / Gerber, Drill, Positions share this origin\n')
 
     def update_zone_fills(self):
         '''Verify all zones have up-to-date fills.'''
@@ -108,6 +166,90 @@ class ProcessManager:
 
         plot_controller.ClosePlot()
         settings = original_settings
+
+    def generate_assembly_pdf(self, temp_dir):
+        '''Generate assembly drawings (top / bottom) as PDF from the Fab layers.
+        Each PDF contains the board outline, component outlines, pin 1 marks and
+        reference designators. The bottom view is mirrored (seen from below).'''
+        fps = self.board.GetModules() if hasattr(self.board, 'GetModules') else self.board.GetFootprints()
+        has_bottom = any(fp.GetLayer() == pcbnew.B_Cu for fp in fps)
+
+        sides = [('top', pcbnew.F_Fab, False, assemblyTopFileName)]
+        if has_bottom:
+            sides.append(('bottom', pcbnew.B_Fab, True, assemblyBottomFileName))
+
+        # keep a copy of the board plot settings so the user's plot dialog is untouched
+        try:
+            saved_options = pcbnew.PCB_PLOT_PARAMS(self.board.GetPlotOptions())
+        except Exception:
+            saved_options = None
+
+        # KiCad centers a scaled plot on the bounding box of everything on the board
+        # (including parts outside the outline), so fit the scale to that same box.
+        try:
+            if hasattr(self.board, 'ComputeBoundingBox'):
+                bbox = self.board.ComputeBoundingBox(False)
+            else:
+                bbox = self.board.GetBoundingBox()
+            board_w = max(bbox.GetWidth() / 1e6, 1.0)
+            board_h = max(bbox.GetHeight() / 1e6, 1.0)
+            fit_scale = min(297.0 * 0.85 / board_w, 210.0 * 0.85 / board_h)
+        except Exception:
+            fit_scale = 1.0
+
+        generated = []
+        try:
+            for side, fab_layer, mirror, file_name in sides:
+                plot_controller = pcbnew.PLOT_CONTROLLER(self.board)
+                po = plot_controller.GetPlotOptions()
+                po.SetOutputDirectory(temp_dir)
+                po.SetPlotFrameRef(False)         # frame would be scaled together with the board
+                # fit the board to an A4 landscape sheet (KiCad's own auto scale misplaces the
+                # plot when called from Python, so compute the scale here)
+                po.SetAutoScale(False)
+                if hasattr(po, 'SetA4Output'):
+                    po.SetA4Output(True)
+                po.SetScale(fit_scale)
+                po.SetMirror(mirror)
+                po.SetUseAuxOrigin(False)
+                po.SetDrillMarksType(0)
+                if hasattr(po, 'SetBlackAndWhite'):
+                    po.SetBlackAndWhite(True)
+                if hasattr(po, 'SetPlotReference'):
+                    po.SetPlotReference(True)
+                if hasattr(po, 'SetPlotValue'):
+                    po.SetPlotValue(False)
+                if hasattr(po, 'SetPlotInvisibleText'):
+                    po.SetPlotInvisibleText(False)
+                if hasattr(po, 'SetSketchPadsOnFabLayers'):
+                    po.SetSketchPadsOnFabLayers(True)  # show pads as outlines on Fab
+
+                plot_controller.SetLayer(fab_layer)
+                plot_controller.OpenPlotfile('assembly_' + side, pcbnew.PLOT_FORMAT_PDF, 'Assembly ' + side)
+                plotted_name = plot_controller.GetPlotFileName()
+
+                if hasattr(plot_controller, 'PlotLayers'):
+                    seq = pcbnew.LSEQ()
+                    seq.push_back(fab_layer)
+                    seq.push_back(pcbnew.Edge_Cuts)
+                    plot_controller.PlotLayers(seq)
+                else:
+                    plot_controller.PlotLayer()
+                    plot_controller.SetLayer(pcbnew.Edge_Cuts)
+                    plot_controller.PlotLayer()
+                plot_controller.ClosePlot()
+
+                target = os.path.join(temp_dir, file_name)
+                if os.path.exists(plotted_name):
+                    shutil.move(plotted_name, target)
+                    generated.append(target)
+        finally:
+            if saved_options is not None:
+                self.board.SetPlotOptions(saved_options)
+            else:
+                self.board.GetPlotOptions().SetMirror(False)
+
+        return generated
 
     def generate_drills(self, temp_dir):
         '''Generate the drill file.'''
@@ -257,6 +399,9 @@ class ProcessManager:
                     rotation += rotation_offset_db
 
                 rotation = (rotation + rotation_offset_manual) % 360.0
+
+                if self.k2_mode and (mid_x < -0.001 or mid_y < -0.001):
+                    self.k2_warnings.append("{}: X={}, Y={}".format(designator, self._format_coordinate(mid_x), self._format_coordinate(mid_y)))
 
                 self.components.append({
                     'Designator': designator,

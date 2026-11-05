@@ -20,6 +20,8 @@ if __name__ == '__main__':
     parser.add_argument("--openBrowser",        "-b",  action="store_true", help="Open webbrowser with directory file overview after generation")
     parser.add_argument("--nonInteractive",     "-nI" ,action="store_true", help="Run in non-Interactive mode. Useful in CI/CD environment.")
     parser.add_argument("--noBackup",           "-nB", action="store_true", help="Do not create backup files")
+    parser.add_argument("--k2Origin",           "-k2", action="store_true", help="K2: use bottom-left of board outline (Edge.Cuts) as origin for Gerber/Drill/Positions")
+    parser.add_argument("--assemblyPdf",        "-aP", action="store_true", help="Generate assembly drawings (top/bottom PDF) from Fab layers")
     args = parser.parse_args()
 
     options = dict()
@@ -32,6 +34,8 @@ if __name__ == '__main__':
     options[ARCHIVE_NAME] = args.archiveName
     options[EXTRA_LAYERS] = args.additionalLayers
     options[BACKUP_OPT] = not args.noBackup
+    options[K2_ORIGIN_OPT] = args.k2Origin
+    options[ASSEMBLY_PDF_OPT] = args.assemblyPdf
     
     openBrowser = args.openBrowser
     nonInteractive = args.nonInteractive

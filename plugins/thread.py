@@ -76,7 +76,14 @@ class ProcessThread(Thread):
         _, temp_file = tempfile.mkstemp()
         project_directory = os.path.dirname(self.process_manager.board.GetFileName())
 
+        original_origin = None
         try:
+            # K2: use bottom-left of the board outline as origin for all outputs
+            if self.options.get(K2_ORIGIN_OPT, False):
+                self.process_manager.k2_mode = True
+                original_origin = self.process_manager.apply_k2_origin()
+                self.process_manager.write_origin_info(temp_dir)
+
             # Verify all zones are up-to-date
             self.progress(10)
             if (self.options[AUTO_FILL_OPT]):
@@ -107,13 +114,21 @@ class ProcessThread(Thread):
             self.progress(70)
             self.process_manager.generate_bom(temp_dir)
 
+            # generate assembly drawings (PDF)
+            if self.options.get(ASSEMBLY_PDF_OPT, False):
+                self.progress(78)
+                self.process_manager.generate_assembly_pdf(temp_dir)
+
             # generate production archive
             self.progress(85)
             temp_file = self.process_manager.generate_archive(temp_dir_gerber, temp_file)
             shutil.move(temp_file, temp_dir)
             shutil.rmtree(temp_dir_gerber)
             temp_file = os.path.join(temp_dir, os.path.basename(temp_file))
+            self.process_manager.restore_origin(original_origin)
+            original_origin = None
         except Exception as e:
+            self.process_manager.restore_origin(original_origin)
             if self.wx is None:
                 logging.error("Fabrication Toolkit - Error" + str(e))
             else:
@@ -167,6 +182,9 @@ class ProcessThread(Thread):
                 os.rename(os.path.join(temp_dir, designatorsFileName), os.path.join(temp_dir, ProcessManager.normalize_filename("_".join((baseName.strip() + '_designators.csv').split()))))
             if os.path.exists(os.path.join(temp_dir, placementFileName)):
                 os.rename(os.path.join(temp_dir, placementFileName), os.path.join(temp_dir, ProcessManager.normalize_filename("_".join((baseName.strip() + '_positions.csv').split()))))
+            for pdf_name in (assemblyTopFileName, assemblyBottomFileName):
+                if os.path.exists(os.path.join(temp_dir, pdf_name)):
+                    os.rename(os.path.join(temp_dir, pdf_name), os.path.join(temp_dir, ProcessManager.normalize_filename("_".join((baseName.strip() + '_' + pdf_name).split()))))
             if os.path.exists(os.path.join(temp_dir, bomFileName)):
                 os.rename(os.path.join(temp_dir, bomFileName), os.path.join(temp_dir, ProcessManager.normalize_filename("_".join((baseName.strip() + '_bom.csv').split()))))
 
@@ -185,6 +203,13 @@ class ProcessThread(Thread):
         except Exception as e:
             if self.openBrowser:
                 webbrowser.open("file://%s" % (temp_dir))
+
+        if self.process_manager.k2_warnings:
+            msg = "K2: 原点(基板外形の左下)より左/下にある部品があります:\n" + "\n".join(self.process_manager.k2_warnings)
+            if self.wx is None:
+                logging.warning(msg)
+            else:
+                wx.CallAfter(wx.MessageBox, msg, "Fabrication Toolkit - K2", wx.OK | wx.ICON_WARNING)
 
         if self.wx is None: 
             self.progress(100)
