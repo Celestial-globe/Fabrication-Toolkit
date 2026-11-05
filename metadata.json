@@ -1,9 +1,9 @@
 {
     "$schema": "https://go.kicad.org/pcm/schemas/v1",
-    "name": "Fabrication Toolkit",
-    "description": "JLC PCB fabrication toolkit",
-    "description_full": "Toolkit for automating PCB fabrication process with KiCad and JLC PCB. \n\n Features: \n\u2022 Generates gerber files in correct format for production. \n\u2022 Generates BOM file in correct format for production. \n\u2022 Generates Pick and Place file in correct format for assembly. \n\u2022 Automatic and manual component translations. \n\u2022 Many more unique additional features. \n\u2665 https://github.com/sponsors/bennymeg",
-    "identifier": "com.github.bennymeg.JLC-Plugin-for-KiCad",
+    "name": "Fabrication Toolkit K2",
+    "description": "Fabrication Toolkit modified for K2 (outline origin, assembly PDF)",
+    "description_full": "Modified version of bennymeg/Fabrication-Toolkit for the K2 factory.\n\n Changes: \n\u2022 Uses the bottom-left of the board outline (Edge.Cuts) as origin (0,0) for Gerber, drill and position files. \n\u2022 Writes origin.txt with origin location and board size. \n\u2022 Generates assembly drawings (top/bottom PDF) from the Fab layers. \n\n Original: https://github.com/bennymeg/Fabrication-Toolkit",
+    "identifier": "com.github.celestial-globe.fabrication-toolkit-k2",
     "type": "plugin",
     "author": {
         "name": "Benny Megidish",
@@ -12,25 +12,26 @@
         }
     },
     "maintainer": {
-        "name": "Benny Megidish",
+        "name": "Celestial-globe",
         "contact": {
-            "web": "https://github.com/bennymeg/Fabrication-Toolkit"
+            "web": "https://github.com/Celestial-globe/Fabrication-Toolkit"
         }
     },
     "license": "Apache-2.0",
     "resources": {
-        "homepage": "https://github.com/bennymeg/Fabrication-Toolkit",
-        "Sponsor": "https://github.com/sponsors/bennymeg"
+        "homepage": "https://github.com/Celestial-globe/Fabrication-Toolkit",
+        "Original": "https://github.com/bennymeg/Fabrication-Toolkit"
     },
     "tags": [
         "jlc",
         "production",
         "fabrication",
-        "toolkit"
+        "toolkit",
+        "k2"
     ],
     "versions": [
         {
-            "version": "5.3.1",
+            "version": "1.0.0",
             "status": "stable",
             "kicad_version": "6.00"
         }

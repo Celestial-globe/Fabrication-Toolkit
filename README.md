@@ -1,3 +1,11 @@
+> [!NOTE]
+> **このリポジトリは [bennymeg/Fabrication-Toolkit](https://github.com/bennymeg/Fabrication-Toolkit) をK2向けに改造したものです**（ブランチ `k2-fabrication`）。
+>
+> - **K2原点**：基板外形（Edge.Cuts）の外接矩形の左下を原点(0,0)にして、ガーバー・ドリル・部品座標（positions.csv）を出力します。生成中だけ配置原点を差し替え、終了後に元へ戻します。原点位置と基板サイズは `origin.txt` に出力します。オプション名は GUI「K2: 基板外形の左下を原点(0,0)にする」、CLI `--k2Origin` / `-k2` です。
+> - **実装図PDF**：Fab層とEdge.Cutsから `assembly_top.pdf` / `assembly_bottom.pdf` を出力します（A4横・白黒、用紙に合わせて拡大縮小、裏面は左右反転）。オプション名は GUI「実装図PDFを出力する」、CLI `--assemblyPdf` / `-aP` です。
+> - **インストール**：[Releases](https://github.com/Celestial-globe/Fabrication-Toolkit/releases) のzipを、プラグイン/コンテンツマネージャーの「ファイルからインストール」で入れてください。識別子が本家と異なるため、本家版とは別のプラグインになります。
+> - 回転角度の補正は本家のままです。
+
 <img src="https://github.com/bennymeg/JLC-Plugin-for-KiCad/blob/master/assets/logo.svg?raw=true"
     style="display:block margin-left: auto; margin-right: auto;" alt="JLC PCB Plug-in for KiCad">
 
